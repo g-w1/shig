@@ -35,7 +35,7 @@ pub fn main() anyerror!void {
         defer cp.deinit();
         const exit = cp.spawnAndWait() catch |e| switch (e) {
             error.FileNotFound => {
-                try stdout.print("{s}: file not found\n", .{argv.items[0]});
+                try shigError("{s}: file not found\n", .{argv.items[0]});
                 continue;
             },
             else => return e,
@@ -73,27 +73,28 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
             const home = std.process.getEnvVarOwned(ally, "HOME") catch |e| {
                 switch (e) {
                     error.EnvironmentVariableNotFound => {
-                        try stdout.print("cd: HOME not set\n", .{});
+                        try shigError("cd: HOME not set\n", .{});
                         return true;
                     },
                     else => return e,
                 }
             };
-            return cd(home);
+            try cd(home);
+            return true;
         } else {
             std.debug.assert(argv.len == 2);
-            return cd(argv[1]);
+            try cd(argv[1]);
+            return true;
         }
     }
     return false;
 }
 
-fn cd(p: []const u8) !bool {
-    const stdout = std.io.getStdOut().writer();
+fn cd(p: []const u8) !void {
     std.process.changeCurDir(p) catch |e| switch (e) {
-        error.AccessDenied => try stdout.print("cd: {s}: Permission denied\n", .{p}),
-        error.FileNotFound => try stdout.print("cd: {s}: No such file or directory\n", .{p}),
-        error.NotDir => try stdout.print("cd: {s}: Not a directory\n", .{p}),
+        error.AccessDenied => try shigError("cd: {s}: Permission denied\n", .{p}),
+        error.FileNotFound => try shigError("cd: {s}: No such file or directory\n", .{p}),
+        error.NotDir => try shigError("cd: {s}: Not a directory\n", .{p}),
         // TODO
         // error.FileSystem => {},
         // error.SymLinkLoop => {},
@@ -102,5 +103,12 @@ fn cd(p: []const u8) !bool {
         // error.BadPathName => {},
         else => return e,
     };
-    return true;
+}
+
+fn shigError(
+    comptime fmt: []const u8,
+    args: anytype,
+) !void {
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print(fmt, args);
 }
