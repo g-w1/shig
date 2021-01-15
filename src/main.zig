@@ -33,19 +33,20 @@ pub fn main() anyerror!void {
         if (argv.items.len < 1 or try handleBuiltin(argv.items, gpa)) continue;
         var cp = try ChildProcess.init(argv.items, gpa);
         defer cp.deinit();
-        const exit = cp.spawnAndWait() catch |e| switch (e) {
-            error.FileNotFound => {
-                try shigError("{s}: file not found\n", .{argv.items[0]});
-                continue;
-            },
-            else => return e,
+        const exit = cp.spawnAndWait() catch |e| {
+            switch (e) {
+                error.FileNotFound => try shigError("{s}: file not found", .{argv.items[0]}),
+                error.AccessDenied => try shigError("{s}: Permission denied", .{argv.items[0]}),
+                else => return e,
+            }
+            continue;
         };
     }
 }
 
 fn printPrompt(ally: *std.mem.Allocator) !void {
     const stdout = std.io.getStdOut();
-    try stdout.writer().print("(shig)> ", .{});
+    try stdout.writer().writeAll("(shig)> ");
 }
 
 /// true if it used a builtin, false if not
@@ -53,7 +54,7 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
     const stdout = std.io.getStdOut().writer();
     if (std.mem.eql(u8, argv[0], "exit")) {
         if (argv.len > 2) {
-            try stdout.print("exit: too many arguments\n", .{});
+            try stdout.writeAll("exit: too many arguments\n");
             return false;
         } else if (argv.len == 1) {
             std.process.exit(0);
@@ -67,17 +68,17 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
     }
     if (std.mem.eql(u8, argv[0], "cd")) {
         if (argv.len > 2) {
-            try stdout.print("cd: too many arguments\n", .{});
+            try stdout.writeAll("cd: too many arguments\n");
             return true;
         } else if (argv.len == 1) {
             const home = std.process.getEnvVarOwned(ally, "HOME") catch |e| {
                 switch (e) {
                     error.EnvironmentVariableNotFound => {
-                        try shigError("cd: HOME not set\n", .{});
-                        return true;
+                        try shigError("cd: HOME not set", .{});
                     },
-                    else => return e,
+                    else => try shigError("cd: {s}: TODO", .{@errorName(e)}),
                 }
+                return true;
             };
             try cd(home);
             return true;
@@ -92,16 +93,16 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
 
 fn cd(p: []const u8) !void {
     std.process.changeCurDir(p) catch |e| switch (e) {
-        error.AccessDenied => try shigError("cd: {s}: Permission denied\n", .{p}),
-        error.FileNotFound => try shigError("cd: {s}: No such file or directory\n", .{p}),
-        error.NotDir => try shigError("cd: {s}: Not a directory\n", .{p}),
+        error.AccessDenied => try shigError("cd: {s}: Permission denied", .{p}),
+        error.FileNotFound => try shigError("cd: {s}: No such file or directory", .{p}),
+        error.NotDir => try shigError("cd: {s}: Not a directory", .{p}),
         // TODO
         // error.FileSystem => {},
         // error.SymLinkLoop => {},
         // error.NameTooLong => {},
         // error.SystemResources => {},
         // error.BadPathName => {},
-        else => return e,
+        else => try shigError("cd: {s}: TODO", .{@errorName(e)}),
     };
 }
 
@@ -111,4 +112,5 @@ fn shigError(
 ) !void {
     const stdout = std.io.getStdOut().writer();
     try stdout.print(fmt, args);
+    try stdout.writeByte('\n');
 }
