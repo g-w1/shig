@@ -80,6 +80,7 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                 }
                 return true;
             };
+            defer ally.free(home);
             try cd(home);
             return true;
         } else {
