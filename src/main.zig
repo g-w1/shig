@@ -77,6 +77,8 @@ test "cd" {
 
     try executeLine(ally, "cd");
     try executeLine(ally, "cd -");
+    try executeLine(ally, "cd /tmp");
+    try executeLine(ally, "cd -");
 
     const new_cwd = try std.process.getCwdAlloc(ally);
     defer ally.free(new_cwd);
@@ -192,7 +194,7 @@ fn builtinCd(ally: *std.mem.Allocator, argv: [][]const u8) !void {
     }
 
     std.debug.assert(argv.len >= 2); // we have already handled the case where we cd home
-    if (argv.len == 2) {
+    if (argv.len != 2) {
         try shigError("cd: too many arguments", .{});
     } else {
         try cd(ally, operand);
