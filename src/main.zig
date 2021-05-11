@@ -1,5 +1,6 @@
 const std = @import("std");
 const ChildProcess = std.ChildProcess;
+const builtin = std.builtin;
 
 const Argv = std.ArrayList([]const u8);
 
@@ -9,7 +10,7 @@ pub fn main() anyerror!void {
     var alloc = std.heap.GeneralPurposeAllocator(.{}){};
     var gpa = &alloc.allocator;
     defer _ = alloc.deinit();
-    env_map = try std.process.getEnvMap(ally);
+    env_map = try std.process.getEnvMap(gpa);
     defer env_map.deinit();
     const stdout = std.io.getStdOut().writer();
 
@@ -58,15 +59,30 @@ test "cd" {
     const ally = std.testing.allocator;
     env_map = try std.process.getEnvMap(ally);
     defer env_map.deinit();
+
     const old_cwd = try std.process.getCwdAlloc(ally);
     defer ally.free(old_cwd);
+
     try executeLine(ally, "cd");
     try executeLine(ally, "cd -");
+
     const new_cwd = try std.process.getCwdAlloc(ally);
     defer ally.free(new_cwd);
+
     try std.testing.expectEqualStrings(new_cwd, old_cwd);
 }
 
+test "export" {
+    const ally = std.testing.allocator;
+    env_map = try std.process.getEnvMap(ally);
+    defer env_map.deinit();
+
+    try std.testing.expect(env_map.get("SHIG_TEST_ENV_VAR") == null);
+
+    try executeLine(ally, "export SHIG_TEST_ENV_VAR=shig_sucess");
+
+    try std.testing.expectEqualStrings(env_map.get("SHIG_TEST_ENV_VAR").?, "shig_sucess");
+}
 
 fn printPrompt(ally: *std.mem.Allocator) !void {
     const stdout = std.io.getStdOut();
@@ -146,7 +162,8 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
         if (argv.len == 1) {
             var env_iter = env_map.iterator();
             while (env_iter.next()) |envvar| {
-                try stdout.print("{s}={s}\n", .{ envvar.key, envvar.value });
+                if (!builtin.is_test)
+                    try stdout.print("{s}={s}\n", .{ envvar.key, envvar.value });
             }
         } else {
             for (argv[1..]) |a| {
@@ -189,7 +206,7 @@ fn shigError(
     comptime fmt: []const u8,
     args: anytype,
 ) !void {
-    const stdout = std.io.getStdOut().writer();
-    try stdout.print(fmt, args);
-    try stdout.writeByte('\n');
+    const stderr = std.io.getStdErr().writer();
+    try stderr.print(fmt, args);
+    try stderr.writeByte('\n');
 }
