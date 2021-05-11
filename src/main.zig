@@ -1,11 +1,7 @@
 const std = @import("std");
 const ChildProcess = std.ChildProcess;
 
-// would something like this make sense?
-const CdFlags = enum { L, P };
-
 const Argv = std.ArrayList([]const u8);
-const Flags = std.ArrayList(CdFlags);
 
 var env_map: std.BufMap = undefined;
 
@@ -81,8 +77,6 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
     if (std.mem.eql(u8, argv[0], "cd")) {
         var operands = try Argv.initCapacity(ally, 1);
         defer operands.deinit();
-        var flags = Flags.init(ally);
-        defer flags.deinit();
         for (argv[1..]) |a| {
             if (a[0] != '-') { // without a dash it's an operand
                 try operands.append(a);
@@ -99,17 +93,8 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                     }
                     return true;
                 } else { // Otherwise it's a flag
-                    for (a[1..]) |flag| {
-                        switch (flag) {
-                            'L' => try flags.append(.L),
-                            'P' => try flags.append(.P),
-                            else => {
-                                try shigError("cd: Illegal option -{c}", .{flag});
-                                return true;
-                            },
-                        }
-                    }
-                    // TODO: make the flags do sth
+                    try shigError("cd: Illegal option {s} (flags are not supported yet)", .{a});
+                    return true;
                 }
             }
         }
