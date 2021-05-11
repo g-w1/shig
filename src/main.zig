@@ -33,6 +33,18 @@ pub fn main() anyerror!void {
     }
 }
 
+const Builtins = enum {
+    cd,
+    @"export",
+    exit,
+};
+
+const BuiltinsMap = std.ComptimeStringMap(Builtins, .{
+    .{ "cd", .cd },
+    .{ "export", .@"export" },
+    .{ "exit", .exit },
+});
+
 fn executeLine(ally: *std.mem.Allocator, line: []const u8) !void {
     // tokenization of line
     var argv = try Argv.initCapacity(ally, 1);
@@ -93,93 +105,98 @@ fn printPrompt(ally: *std.mem.Allocator) !void {
 
 /// true if it used a builtin, false if not
 fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
+    std.debug.assert(argv.len > 0);
     const stdout = std.io.getStdOut().writer();
-    if (std.mem.eql(u8, argv[0], "exit")) {
-        if (argv.len > 2) {
-            try stdout.writeAll("exit: too many arguments\n");
-            return false;
-        } else if (argv.len == 1) {
-            std.process.exit(0);
-        } else {
-            const exit_num = std.fmt.parseInt(u8, argv[1], 10) catch |e| switch (e) {
-                error.Overflow => std.process.exit(std.math.maxInt(u8)),
-                error.InvalidCharacter => std.process.exit(0),
-            };
-            std.process.exit(exit_num);
-        }
+    switch (BuiltinsMap.get(argv[0]) orelse return false) {
+        .cd => try builtinCd(ally, argv),
+        .@"export" => try builtinExport(ally, argv),
+        .exit => try builtinExit(argv),
     }
+    return true;
+}
 
-    if (std.mem.eql(u8, argv[0], "cd")) {
-        var operands = try Argv.initCapacity(ally, 1);
-        defer operands.deinit();
+fn builtinExit(argv: [][]const u8) !void {
+    std.debug.assert(std.mem.eql(u8, "exit", argv[0])); // exit was called wrong
+    const stdout = std.io.getStdOut().writer();
+    if (argv.len > 2) {
+        try stdout.writeAll("exit: too many arguments\n");
+    } else if (argv.len == 1) {
+        std.process.exit(0);
+    } else {
+        const exit_num = std.fmt.parseInt(u8, argv[1], 10) catch |e| switch (e) {
+            error.Overflow => std.process.exit(std.math.maxInt(u8)),
+            error.InvalidCharacter => std.process.exit(0),
+        };
+        std.process.exit(exit_num);
+    }
+}
+fn builtinExport(ally: *std.mem.Allocator, argv: [][]const u8) !void {
+    std.debug.assert(std.mem.eql(u8, "export", argv[0])); // export was called wrong
+    const stdout = std.io.getStdOut().writer();
+    if (argv.len == 1) {
+        var env_iter = env_map.iterator();
+        while (env_iter.next()) |envvar| {
+            if (!builtin.is_test)
+                try stdout.print("{s}={s}\n", .{ envvar.key, envvar.value });
+        }
+    } else {
         for (argv[1..]) |a| {
-            if (a[0] != '-') { // without a dash it's an operand
-                try operands.append(a);
-            } else if (std.mem.eql(u8, a, "-")) { // singular dash means go back to previous directory
-                const newdir = env_map.get("OLDPWD");
-                if (newdir) |nd| {
-                    const d = try std.mem.dupe(ally, u8, nd);
-                    defer ally.free(d);
-
-                    if (!builtin.is_test)
-                        try stdout.print("{s}\n", .{d});
-
-                    try cd(ally, d);
-                } else {
-                    try shigError("cd: OLDPWD not set", .{});
-                }
-                return true;
-            } else { // Otherwise it's a flag
-                try shigError("cd: TODO illegal option {s} (flags are not supported yet)", .{a});
-                return true;
+            const eql_position = std.mem.indexOf(u8, a, "=");
+            if (eql_position) |pos| {
+                const name = a[0..pos];
+                const word = a[pos + 1 ..];
+                try env_map.set(name, word);
+            } else {
+                try shigError("export: TODO export existing variables", .{});
             }
         }
-
-        if (operands.items.len > 1) {
-            try stdout.writeAll("cd: too many arguments\n");
-            return true;
-        } else if (operands.items.len == 0) {
-            const home = std.process.getEnvVarOwned(ally, "HOME") catch |e| {
-                switch (e) {
-                    error.EnvironmentVariableNotFound => {
-                        try shigError("cd: HOME not set", .{});
-                    },
-                    else => try shigError("cd: {s}: TODO", .{@errorName(e)}),
-                }
-                return true;
-            };
-            defer ally.free(home);
-            try cd(ally, home);
-            return true;
-        } else {
-            std.debug.assert(operands.items.len == 1);
-            try cd(ally, operands.items[0]);
-            return true;
-        }
     }
+}
+fn builtinCd(ally: *std.mem.Allocator, argv: [][]const u8) !void {
+    const stdout = std.io.getStdOut().writer();
+    std.debug.assert(std.mem.eql(u8, "cd", argv[0])); // cd was called wrong
+    var operand: []const u8 = undefined;
+    for (argv[1..]) |a| {
+        if (a[0] != '-') { // without a dash it's an operand
+            operand = a;
+        } else if (std.mem.eql(u8, a, "-")) { // singular dash means go back to previous directory
+            const newdir = env_map.get("OLDPWD");
+            if (newdir) |nd| {
+                const d = try std.mem.dupe(ally, u8, nd);
+                defer ally.free(d);
 
-    if (std.mem.eql(u8, argv[0], "export")) {
-        if (argv.len == 1) {
-            var env_iter = env_map.iterator();
-            while (env_iter.next()) |envvar| {
                 if (!builtin.is_test)
-                    try stdout.print("{s}={s}\n", .{ envvar.key, envvar.value });
+                    try stdout.print("{s}\n", .{d});
+
+                try cd(ally, d);
+            } else {
+                try shigError("cd: OLDPWD not set", .{});
             }
-        } else {
-            for (argv[1..]) |a| {
-                const eql_position = std.mem.indexOf(u8, a, "=");
-                if (eql_position) |pos| {
-                    const name = a[0..pos];
-                    const word = a[pos + 1 ..];
-                    try env_map.set(name, word);
-                } else {
-                    try shigError("export: TODO export existing variables", .{});
-                }
-            }
+            return;
+        } else { // Otherwise it's a flag
+            try shigError("cd: TODO illegal option {s} (flags are not supported yet)", .{a});
+            return;
         }
-        return true;
     }
-    return false;
+    if (argv.len == 1) {
+        const home = std.process.getEnvVarOwned(ally, "HOME") catch |e| {
+            switch (e) {
+                error.EnvironmentVariableNotFound => try shigError("cd: HOME not set", .{}),
+                else => try shigError("cd: {s}: TODO", .{@errorName(e)}),
+            }
+            return;
+        };
+        defer ally.free(home);
+        try cd(ally, home);
+        return;
+    }
+
+    std.debug.assert(argv.len >= 2); // we have already handled the case where we cd home
+    if (argv.len == 2) {
+        try stdout.writeAll("cd: too many arguments\n");
+    } else {
+        try cd(ally, operand);
+    }
 }
 
 // TODO: The builtins should probably be in separate files
