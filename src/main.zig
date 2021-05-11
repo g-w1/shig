@@ -137,7 +137,7 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                 const word = argv[1][pos + 1 ..];
                 try envExport(ally, name, word);
             } else {
-                try shigError("cd: TODO export existing variables", .{});
+                try shigError("export: TODO export existing variables", .{});
             }
         }
         return true;
