@@ -39,7 +39,7 @@ const Builtins = enum {
     exit,
 };
 
-const BuiltinsMap = std.ComptimeStringMap(Builtins, .{
+const builtins_map = std.ComptimeStringMap(Builtins, .{
     .{ "cd", .cd },
     .{ "export", .@"export" },
     .{ "exit", .exit },
@@ -107,7 +107,7 @@ fn printPrompt(ally: *std.mem.Allocator) !void {
 fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
     std.debug.assert(argv.len > 0);
     const stdout = std.io.getStdOut().writer();
-    switch (BuiltinsMap.get(argv[0]) orelse return false) {
+    switch (builtins_map.get(argv[0]) orelse return false) {
         .cd => try builtinCd(ally, argv),
         .@"export" => try builtinExport(ally, argv),
         .exit => try builtinExit(argv),
