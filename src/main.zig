@@ -1,7 +1,11 @@
 const std = @import("std");
 const ChildProcess = std.ChildProcess;
 
+// would something like this make sense?
+const CdFlags = enum { L, P };
+
 const Argv = std.ArrayList([]const u8);
+const Flags = std.ArrayList(CdFlags);
 
 pub fn main() anyerror!void {
     var alloc = std.heap.GeneralPurposeAllocator(.{}){};
@@ -66,11 +70,42 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
             std.process.exit(exit_num);
         }
     }
+
     if (std.mem.eql(u8, argv[0], "cd")) {
-        if (argv.len > 2) {
+        var operands = try Argv.initCapacity(ally, 1);
+        defer operands.deinit();
+        var flags = Flags.init(ally);
+        defer flags.deinit();
+        for (argv[1..]) |a| {
+            if (a[0] != '-') { // without a dash it's an operand
+                try operands.append(a);
+            } else { // TODO: handle path starting with '/', '.' or neither(CDPATH) explicitely
+                if (a.len == 1) { // singular dash means go back to previous directory
+                    const newdir = try std.process.getEnvVarOwned(ally, "OLDPWD");
+                    defer ally.free(newdir);
+                    try stdout.print("{s}\n", .{newdir});
+                    try cd(ally, newdir);
+                    return true;
+                } else { // Otherwise it's a flag
+                    for (a[1..]) |flag| {
+                        switch (flag) {
+                            'L' => try flags.append(.L),
+                            'P' => try flags.append(.P),
+                            else => {
+                                try shigError("cd: Illegal option -{c}", .{flag});
+                                return true;
+                            },
+                        }
+                    }
+                    // TODO: make the flags do sth
+                }
+            }
+        }
+
+        if (operands.items.len > 1) {
             try stdout.writeAll("cd: too many arguments\n");
             return true;
-        } else if (argv.len == 1) {
+        } else if (operands.items.len == 0) {
             const home = std.process.getEnvVarOwned(ally, "HOME") catch |e| {
                 switch (e) {
                     error.EnvironmentVariableNotFound => {
@@ -81,18 +116,55 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                 return true;
             };
             defer ally.free(home);
-            try cd(home);
+            try cd(ally, home);
             return true;
         } else {
-            std.debug.assert(argv.len == 2);
-            try cd(argv[1]);
+            std.debug.assert(operands.items.len == 1);
+            try cd(ally, operands.items[0]);
             return true;
         }
+    }
+
+    if (std.mem.eql(u8, argv[0], "export")) {
+        if (argv.len == 1) {
+            for (std.os.environ) |envvar| {
+                try stdout.print("{s}\n", .{envvar});
+            }
+        } else {
+            const eql_position = std.mem.indexOf(u8, argv[1], "=");
+            if (eql_position) |pos| {
+                const name = argv[1][0..pos];
+                const word = argv[1][pos + 1 ..];
+                try envExport(ally, name, word);
+            } else {
+                try shigError("cd: TODO export existing variables", .{});
+            }
+        }
+        return true;
     }
     return false;
 }
 
-fn cd(p: []const u8) !void {
+// TODO: The builtins should probably be in separate files
+
+fn envExport(ally: *std.mem.Allocator, name: []const u8, word: []const u8) !void {
+    for (std.os.environ) |*envvar| {
+        var line_i: usize = 0;
+        while (envvar.*[line_i] != 0 and envvar.*[line_i] != '=') : (line_i += 1) {}
+        const this_key = envvar.*[0..line_i];
+        if (!std.mem.eql(u8, name, this_key)) continue;
+
+        var end_i: usize = line_i;
+        while (envvar.*[end_i] != 0) : (end_i += 1) {}
+        // This may be a memory leak
+        envvar.* = try std.fmt.allocPrintZ(ally, "{s}={s}", .{ name, word });
+    }
+    // TODO: export not yet existing env variable
+}
+
+fn cd(ally: *std.mem.Allocator, p: []const u8) !void {
+    var buffer = [_:0]u8{0} ** 100;
+    try envExport(ally, "OLDPWD", try std.os.getcwd(&buffer));
     std.process.changeCurDir(p) catch |e| switch (e) {
         error.AccessDenied => try shigError("cd: {s}: Permission denied", .{p}),
         error.FileNotFound => try shigError("cd: {s}: No such file or directory", .{p}),
