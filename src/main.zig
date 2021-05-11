@@ -7,10 +7,15 @@ const CdFlags = enum { L, P };
 const Argv = std.ArrayList([]const u8);
 const Flags = std.ArrayList(CdFlags);
 
+var env_map: std.BufMap = undefined;
+
 pub fn main() anyerror!void {
     var alloc = std.heap.GeneralPurposeAllocator(.{}){};
     var gpa = &alloc.allocator;
+    defer _ = alloc.deinit();
     const stdout = std.io.getStdOut().writer();
+    env_map = try std.process.getEnvMap(gpa);
+
     while (true) {
         // the prompt
         try printPrompt(gpa);
@@ -83,10 +88,15 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                 try operands.append(a);
             } else { // TODO: handle path starting with '/', '.' or neither(CDPATH) explicitely
                 if (a.len == 1) { // singular dash means go back to previous directory
-                    const newdir = try std.process.getEnvVarOwned(ally, "OLDPWD");
-                    defer ally.free(newdir);
-                    try stdout.print("{s}\n", .{newdir});
-                    try cd(ally, newdir);
+                    const newdir = env_map.get("OLDPWD");
+                    if (newdir) |nd| {
+                        const d = try std.mem.dupe(ally, u8, nd);
+                        defer ally.free(d);
+                        try stdout.print("{s}\n", .{d});
+                        try cd(d);
+                    } else {
+                        try shigError("cd: OLDPWD not set", .{});
+                    }
                     return true;
                 } else { // Otherwise it's a flag
                     for (a[1..]) |flag| {
@@ -118,19 +128,20 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                 return true;
             };
             defer ally.free(home);
-            try cd(ally, home);
+            try cd(home);
             return true;
         } else {
             std.debug.assert(operands.items.len == 1);
-            try cd(ally, operands.items[0]);
+            try cd(operands.items[0]);
             return true;
         }
     }
 
     if (std.mem.eql(u8, argv[0], "export")) {
         if (argv.len == 1) {
-            for (std.os.environ) |envvar| {
-                try stdout.print("{s}\n", .{envvar});
+            var env_iter = env_map.iterator();
+            while (env_iter.next()) |envvar| {
+                try stdout.print("{s}={s}\n", .{ envvar.key, envvar.value });
             }
         } else {
             for (argv[1..]) |a| {
@@ -138,7 +149,7 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                 if (eql_position) |pos| {
                     const name = a[0..pos];
                     const word = a[pos + 1 ..];
-                    try envExport(ally, name, word);
+                    try env_map.set(name, word);
                 } else {
                     try shigError("export: TODO export existing variables", .{});
                 }
@@ -151,24 +162,9 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
 
 // TODO: The builtins should probably be in separate files
 
-fn envExport(ally: *std.mem.Allocator, name: []const u8, word: []const u8) !void {
-    for (std.os.environ) |*envvar| {
-        var line_i: usize = 0;
-        while (envvar.*[line_i] != 0 and envvar.*[line_i] != '=') : (line_i += 1) {}
-        const this_key = envvar.*[0..line_i];
-        if (!std.mem.eql(u8, name, this_key)) continue;
-
-        var end_i: usize = line_i;
-        while (envvar.*[end_i] != 0) : (end_i += 1) {}
-        // This may be a memory leak
-        envvar.* = try std.fmt.allocPrintZ(ally, "{s}={s}", .{ name, word });
-    }
-    // TODO: export not yet existing env variable
-}
-
-fn cd(ally: *std.mem.Allocator, p: []const u8) !void {
+fn cd(p: []const u8) !void {
     var buffer = [_:0]u8{0} ** 100;
-    try envExport(ally, "OLDPWD", try std.os.getcwd(&buffer));
+    try env_map.set("OLDPWD", try std.os.getcwd(&buffer));
     std.process.changeCurDir(p) catch |e| switch (e) {
         error.AccessDenied => try shigError("cd: {s}: Permission denied", .{p}),
         error.FileNotFound => try shigError("cd: {s}: No such file or directory", .{p}),
