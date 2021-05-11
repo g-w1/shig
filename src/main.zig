@@ -9,9 +9,9 @@ pub fn main() anyerror!void {
     var alloc = std.heap.GeneralPurposeAllocator(.{}){};
     var gpa = &alloc.allocator;
     defer _ = alloc.deinit();
-    const stdout = std.io.getStdOut().writer();
-    env_map = try std.process.getEnvMap(gpa);
+    env_map = try std.process.getEnvMap(ally);
     defer env_map.deinit();
+    const stdout = std.io.getStdOut().writer();
 
     while (true) {
         // the prompt
@@ -26,29 +26,47 @@ pub fn main() anyerror!void {
             },
             else => return e,
         });
-        if (line.len < 1) continue;
         defer gpa.free(line);
-        // tokenization of line
-        var argv = try Argv.initCapacity(gpa, 1);
-        defer argv.deinit();
-        var tokenized = std.mem.tokenize(line, " ");
-        while (tokenized.next()) |arg| {
-            try argv.append(arg);
-        }
-        // parse the args / handle builtin funcs
-        if (argv.items.len < 1 or try handleBuiltin(argv.items, gpa)) continue;
-        var cp = try ChildProcess.init(argv.items, gpa);
-        defer cp.deinit();
-        const exit = cp.spawnAndWait() catch |e| {
-            switch (e) {
-                error.FileNotFound => try shigError("{s}: file not found", .{argv.items[0]}),
-                error.AccessDenied => try shigError("{s}: Permission denied", .{argv.items[0]}),
-                else => return e,
-            }
-            continue;
-        };
+        if (line.len < 1) continue;
+        try executeLine(gpa, line);
     }
 }
+
+fn executeLine(ally: *std.mem.Allocator, line: []const u8) !void {
+    // tokenization of line
+    var argv = try Argv.initCapacity(ally, 1);
+    defer argv.deinit();
+    var tokenized = std.mem.tokenize(line, " ");
+    while (tokenized.next()) |arg| {
+        try argv.append(arg);
+    }
+    // parse the args / handle builtin funcs
+    if (argv.items.len < 1 or try handleBuiltin(argv.items, ally)) return;
+    var cp = try ChildProcess.init(argv.items, ally);
+    defer cp.deinit();
+    const exit = cp.spawnAndWait() catch |e| {
+        switch (e) {
+            error.FileNotFound => try shigError("{s}: file not found", .{argv.items[0]}),
+            error.AccessDenied => try shigError("{s}: Permission denied", .{argv.items[0]}),
+            else => try shigError("{s}: TODO handle more errors", .{@errorName(e)}),
+        }
+        return;
+    };
+}
+
+test "cd" {
+    const ally = std.testing.allocator;
+    env_map = try std.process.getEnvMap(ally);
+    defer env_map.deinit();
+    const old_cwd = try std.process.getCwdAlloc(ally);
+    defer ally.free(old_cwd);
+    try executeLine(ally, "cd");
+    try executeLine(ally, "cd -");
+    const new_cwd = try std.process.getCwdAlloc(ally);
+    defer ally.free(new_cwd);
+    try std.testing.expectEqualStrings(new_cwd, old_cwd);
+}
+
 
 fn printPrompt(ally: *std.mem.Allocator) !void {
     const stdout = std.io.getStdOut();
