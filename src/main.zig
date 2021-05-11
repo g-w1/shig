@@ -88,7 +88,7 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                         const d = try std.mem.dupe(ally, u8, nd);
                         defer ally.free(d);
                         try stdout.print("{s}\n", .{d});
-                        try cd(d);
+                        try cd(ally, d);
                     } else {
                         try shigError("cd: OLDPWD not set", .{});
                     }
@@ -114,11 +114,11 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                 return true;
             };
             defer ally.free(home);
-            try cd(home);
+            try cd(ally, home);
             return true;
         } else {
             std.debug.assert(operands.items.len == 1);
-            try cd(operands.items[0]);
+            try cd(ally, operands.items[0]);
             return true;
         }
     }
@@ -148,9 +148,10 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
 
 // TODO: The builtins should probably be in separate files
 
-fn cd(p: []const u8) !void {
-    var buffer = [_:0]u8{0} ** 100;
-    try env_map.set("OLDPWD", try std.os.getcwd(&buffer));
+fn cd(ally: *std.mem.Allocator, p: []const u8) !void {
+    const cwd = try std.process.getCwdAlloc(ally);
+    defer ally.free(cwd);
+    try env_map.set("OLDPWD", cwd);
     std.process.changeCurDir(p) catch |e| switch (e) {
         error.AccessDenied => try shigError("cd: {s}: Permission denied", .{p}),
         error.FileNotFound => try shigError("cd: {s}: No such file or directory", .{p}),
