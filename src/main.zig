@@ -119,7 +119,7 @@ fn builtinExit(argv: [][]const u8) !void {
     std.debug.assert(std.mem.eql(u8, "exit", argv[0])); // exit was called wrong
     const stdout = std.io.getStdOut().writer();
     if (argv.len > 2) {
-        try stdout.writeAll("exit: too many arguments\n");
+        try shigError("exit: too many arguments", .{});
     } else if (argv.len == 1) {
         std.process.exit(0);
     } else {
@@ -193,7 +193,7 @@ fn builtinCd(ally: *std.mem.Allocator, argv: [][]const u8) !void {
 
     std.debug.assert(argv.len >= 2); // we have already handled the case where we cd home
     if (argv.len == 2) {
-        try stdout.writeAll("cd: too many arguments\n");
+        try shigError("cd: too many arguments", .{});
     } else {
         try cd(ally, operand);
     }
@@ -224,6 +224,5 @@ fn shigError(
     args: anytype,
 ) !void {
     const stderr = std.io.getStdErr().writer();
-    try stderr.print(fmt, args);
-    try stderr.writeByte('\n');
+    try stderr.print("shig: " ++ fmt ++ "\n", args);
 }
