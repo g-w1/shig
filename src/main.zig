@@ -11,6 +11,7 @@ pub fn main() anyerror!void {
     defer _ = alloc.deinit();
     const stdout = std.io.getStdOut().writer();
     env_map = try std.process.getEnvMap(gpa);
+    defer env_map.deinit();
 
     while (true) {
         // the prompt
