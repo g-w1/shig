@@ -131,13 +131,15 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
                 try stdout.print("{s}\n", .{envvar});
             }
         } else {
-            const eql_position = std.mem.indexOf(u8, argv[1], "=");
-            if (eql_position) |pos| {
-                const name = argv[1][0..pos];
-                const word = argv[1][pos + 1 ..];
-                try envExport(ally, name, word);
-            } else {
-                try shigError("export: TODO export existing variables", .{});
+            for (argv[1..]) |a| {
+                const eql_position = std.mem.indexOf(u8, a, "=");
+                if (eql_position) |pos| {
+                    const name = a[0..pos];
+                    const word = a[pos + 1 ..];
+                    try envExport(ally, name, word);
+                } else {
+                    try shigError("export: TODO export existing variables", .{});
+                }
             }
         }
         return true;
