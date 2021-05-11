@@ -99,22 +99,23 @@ fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
         for (argv[1..]) |a| {
             if (a[0] != '-') { // without a dash it's an operand
                 try operands.append(a);
-            } else { // TODO: handle path starting with '/', '.' or neither(CDPATH) explicitely
-                if (a.len == 1) { // singular dash means go back to previous directory
-                    const newdir = env_map.get("OLDPWD");
-                    if (newdir) |nd| {
-                        const d = try std.mem.dupe(ally, u8, nd);
-                        defer ally.free(d);
+            } else if (std.mem.eql(u8, a, "-")) { // singular dash means go back to previous directory
+                const newdir = env_map.get("OLDPWD");
+                if (newdir) |nd| {
+                    const d = try std.mem.dupe(ally, u8, nd);
+                    defer ally.free(d);
+
+                    if (!builtin.is_test)
                         try stdout.print("{s}\n", .{d});
-                        try cd(ally, d);
-                    } else {
-                        try shigError("cd: OLDPWD not set", .{});
-                    }
-                    return true;
-                } else { // Otherwise it's a flag
-                    try shigError("cd: Illegal option {s} (flags are not supported yet)", .{a});
-                    return true;
+
+                    try cd(ally, d);
+                } else {
+                    try shigError("cd: OLDPWD not set", .{});
                 }
+                return true;
+            } else { // Otherwise it's a flag
+                try shigError("cd: TODO illegal option {s} (flags are not supported yet)", .{a});
+                return true;
             }
         }
 
