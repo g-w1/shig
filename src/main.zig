@@ -54,9 +54,9 @@ pub fn main() anyerror!void {
 }
 
 fn printPrompt(ally: *std.mem.Allocator) !void {
-    var buf = [_]u8{0} ** 100;
     const stdout = std.io.getStdOut();
-    const cwd = std.os.getcwd(&buf);
+    const cwd = try std.process.getCwdAlloc(ally);
+    defer ally.free(cwd);
     try stdout.writer().print("\x1b[34;1m{s} \x1b[32;1m(shig)>\x1b[0m ", .{cwd});
 }
 
