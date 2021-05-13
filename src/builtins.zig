@@ -29,8 +29,7 @@ fn builtinCd(ally: *std.mem.Allocator, argv: [][]const u8) !void {
                 const d = try std.mem.dupe(ally, u8, nd);
                 defer ally.free(d);
 
-                if (!builtin.is_test)
-                    try stdout.print("{s}\n", .{d});
+                try stdout.print("{s}\n", .{d});
 
                 try cd(ally, d);
             } else {
@@ -101,8 +100,7 @@ fn builtinExport(ally: *std.mem.Allocator, argv: [][]const u8) !void {
     if (argv.len == 1) {
         var env_iter = main.env_map.iterator();
         while (env_iter.next()) |envvar| {
-            if (!builtin.is_test)
-                try stdout.print("{s}={s}\n", .{ envvar.key, envvar.value });
+            try stdout.print("{s}={s}\n", .{ envvar.key, envvar.value });
         }
     } else {
         for (argv[1..]) |a| {

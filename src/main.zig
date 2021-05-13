@@ -7,6 +7,7 @@ const builtins = @import("builtins.zig");
 const Argv = std.ArrayList([]const u8);
 
 pub var env_map: std.BufMap = undefined;
+pub var lastexitcode: u32 = 0;
 
 pub fn init(ally: *std.mem.Allocator) !void {
     env_map = try std.process.getEnvMap(ally);
@@ -40,6 +41,7 @@ pub fn main() anyerror!void {
         });
         defer ally.free(line);
         if (line.len < 1) continue;
+        // execute the command
         try executeLine(ally, line);
     }
 }
@@ -54,16 +56,31 @@ pub fn executeLine(ally: *std.mem.Allocator, line: []const u8) !void {
     }
     // parse the args / handle builtin funcs
     if (argv.items.len < 1 or try builtins.handleBuiltin(argv.items, ally)) return;
-    var cp = try ChildProcess.init(argv.items, ally);
-    defer cp.deinit();
-    const exit = cp.spawnAndWait() catch |e| {
-        switch (e) {
+
+    // from zig docs:
+    // // The POSIX standard does not allow malloc() between fork() and execve(),
+    // // and `self.allocator` may be a libc allocator.
+    // // I have personally observed the child process deadlocking when it tries
+    // // to call malloc() due to a heap allocation between fork() and execve(),
+    // // in musl v1.1.24.
+    // // Additionally, we want to reduce the number of possible ways things
+    // // can fail between fork() and execve().
+    // // Therefore, we do all the allocation for the execve() before the fork().
+    // // This means we must do the null-termination of argv and env vars here.
+
+    const pid_result = try std.os.fork();
+    if (pid_result == 0) {
+        // child
+        switch (std.process.execv(ally, argv.items)) {
             error.FileNotFound => try shigError("{s}: file not found", .{argv.items[0]}),
             error.AccessDenied => try shigError("{s}: Permission denied", .{argv.items[0]}),
-            else => try shigError("{s}: TODO handle more errors", .{@errorName(e)}),
+            else => |e| try shigError("{s}: TODO handle more errors", .{@errorName(e)}),
         }
-        return;
-    };
+    } else {
+        // parent
+        const waitpid_results = std.os.waitpid(pid_result, 0);
+        lastexitcode = waitpid_results.status;
+    }
 }
 
 fn printPrompt(ally: *std.mem.Allocator) !void {
@@ -85,17 +102,30 @@ test "builtins" {
     _ = @import("builtins.zig");
 }
 
+test "exec" {
+    try init(std.testing.allocator);
+    defer deinit();
+
+    // relative paths in $PATH
+    try executeLine(std.testing.allocator, "ls");
+
+    // Absolute path
+    var cmd = try std.mem.concat(std.testing.allocator, u8, &.{ std.testing.zig_exe_path, " --help" });
+    defer std.testing.allocator.free(cmd);
+    try executeLine(std.testing.allocator, cmd);
+}
+
 /// returns an owned slice
-pub fn getProgFromPath(allocator: *std.mem.Allocator, prog: []const u8) !?[]const u8 {
+pub fn getProgFromPath(allocator: *std.mem.Allocator, prog: []const u8) !?[:0]const u8 {
     if (std.mem.indexOfScalar(u8, prog, '/') != null) {
         std.os.access(prog, std.os.system.X_OK) catch return null;
-        return prog;
+        return @as(?[:0]const u8, try allocator.dupeZ(u8, prog));
     }
 
     const PATH = std.os.getenvZ("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
     var it = std.mem.tokenize(PATH, ":");
     while (it.next()) |directory| {
-        const path = try std.fs.path.join(allocator, &.{ directory, prog });
+        const path = try std.fs.path.joinZ(allocator, &.{ directory, prog });
         std.os.access(path, std.os.system.X_OK) catch {
             allocator.free(path);
             continue;
