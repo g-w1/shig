@@ -4,7 +4,7 @@ const builtin = std.builtin;
 
 const builtins = @import("builtins.zig");
 
-const Argv = std.ArrayList([]const u8);
+const Parser = @import("parser.zig").Parser();
 
 pub var env_map: std.BufMap = undefined;
 pub var lastexitcode: u32 = 0;
@@ -48,14 +48,10 @@ pub fn main() anyerror!void {
 
 pub fn executeLine(ally: *std.mem.Allocator, line: []const u8) !void {
     // tokenization of line
-    var argv = try Argv.initCapacity(ally, 1);
-    defer argv.deinit();
-    var tokenized = std.mem.tokenize(line, " ");
-    while (tokenized.next()) |arg| {
-        try argv.append(arg);
-    }
+    var parser = try Parser.init(ally, line);
+    defer parser.deinit();
     // parse the args / handle builtin funcs
-    if (argv.items.len < 1 or try builtins.handleBuiltin(argv.items, ally)) return;
+    if (parser.tokens.items.len < 1 or try builtins.handleBuiltin(parser.tokens.items, ally)) return;
 
     // from zig docs:
     // // The POSIX standard does not allow malloc() between fork() and execve(),
@@ -71,9 +67,9 @@ pub fn executeLine(ally: *std.mem.Allocator, line: []const u8) !void {
     const pid_result = try std.os.fork();
     if (pid_result == 0) {
         // child
-        switch (std.process.execv(ally, argv.items)) {
-            error.FileNotFound => try shigError("{s}: file not found", .{argv.items[0]}),
-            error.AccessDenied => try shigError("{s}: Permission denied", .{argv.items[0]}),
+        switch (std.process.execv(ally, parser.tokens.items)) {
+            error.FileNotFound => try shigError("{s}: file not found", .{parser.tokens.items[0]}),
+            error.AccessDenied => try shigError("{s}: Permission denied", .{parser.tokens.items[0]}),
             else => |e| try shigError("{s}: TODO handle more errors", .{@errorName(e)}),
         }
     } else {
