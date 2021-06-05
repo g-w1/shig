@@ -64,7 +64,7 @@ fn builtinCd(ally: *std.mem.Allocator, argv: [][]const u8) !void {
 fn cd(ally: *std.mem.Allocator, p: []const u8) !void {
     const cwd = try std.process.getCwdAlloc(ally);
     defer ally.free(cwd);
-    try main.env_map.set("OLDPWD", cwd);
+    try main.env_map.put("OLDPWD", cwd);
     std.process.changeCurDir(p) catch |e| switch (e) {
         error.AccessDenied => try shigError("cd: {s}: Permission denied", .{p}),
         error.FileNotFound => try shigError("cd: {s}: No such file or directory", .{p}),
@@ -100,7 +100,7 @@ fn builtinExport(ally: *std.mem.Allocator, argv: [][]const u8) !void {
     if (argv.len == 1) {
         var env_iter = main.env_map.iterator();
         while (env_iter.next()) |envvar| {
-            try stdout.print("{s}={s}\n", .{ envvar.key, envvar.value });
+            try stdout.print("{s}={s}\n", .{ envvar.key_ptr.*, envvar.value_ptr.* });
         }
     } else {
         for (argv[1..]) |a| {
@@ -108,7 +108,7 @@ fn builtinExport(ally: *std.mem.Allocator, argv: [][]const u8) !void {
             if (eql_position) |pos| {
                 const name = a[0..pos];
                 const word = a[pos + 1 ..];
-                try main.env_map.set(name, word);
+                try main.env_map.put(name, word);
             } else {
                 try shigError("export: TODO export existing variables", .{});
             }
