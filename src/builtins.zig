@@ -4,17 +4,12 @@ const builtin = std.builtin;
 const executeLine = main.executeLine;
 const shigError = main.shigError;
 
-const builtins_map = std.ComptimeStringMap(enum {
+const BuiltinType = enum {
     cd,
     @"export",
     exit,
     type,
-}, .{
-    .{ "cd", .cd },
-    .{ "export", .@"export" },
-    .{ "exit", .exit },
-    .{ "type", .type },
-});
+};
 
 fn builtinCd(ally: *std.mem.Allocator, argv: [][]const u8) !void {
     const stdout = std.io.getStdOut().writer();
@@ -123,7 +118,7 @@ fn builtinType(ally: *std.mem.Allocator, argv: [][]const u8) !void {
     } else {
         for (argv[1..]) |a| {
             // TODO aliases first
-            if (builtins_map.has(a)) {
+            if (std.meta.stringToEnum(BuiltinType, a) != null) {
                 try stdout.print("{s} is a shell builtin\n", .{a});
                 continue;
             }
@@ -141,7 +136,7 @@ fn builtinType(ally: *std.mem.Allocator, argv: [][]const u8) !void {
 pub fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
     std.debug.assert(argv.len > 0);
     const stdout = std.io.getStdOut().writer();
-    switch (builtins_map.get(argv[0]) orelse return false) {
+    switch (std.meta.stringToEnum(BuiltinType, argv[0]) orelse return false) {
         .cd => try builtinCd(ally, argv),
         .@"export" => try builtinExport(ally, argv),
         .exit => try builtinExit(argv),
