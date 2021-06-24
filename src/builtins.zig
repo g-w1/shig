@@ -76,7 +76,6 @@ fn cd(ally: *std.mem.Allocator, p: []const u8) !void {
 
 fn builtinExit(argv: [][]const u8) !void {
     std.debug.assert(std.mem.eql(u8, "exit", argv[0])); // exit was called wrong
-    const stdout = std.io.getStdOut().writer();
     if (argv.len > 2) {
         try shigError("exit: too many arguments", .{});
     } else if (argv.len == 1) {
@@ -89,7 +88,7 @@ fn builtinExit(argv: [][]const u8) !void {
         std.process.exit(exit_num);
     }
 }
-fn builtinExport(ally: *std.mem.Allocator, argv: [][]const u8) !void {
+fn builtinExport(argv: [][]const u8) !void {
     std.debug.assert(std.mem.eql(u8, "export", argv[0])); // export was called wrong
     const stdout = std.io.getStdOut().writer();
     if (argv.len == 1) {
@@ -135,10 +134,9 @@ fn builtinType(ally: *std.mem.Allocator, argv: [][]const u8) !void {
 /// true if it used a builtin, false if not
 pub fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
     std.debug.assert(argv.len > 0);
-    const stdout = std.io.getStdOut().writer();
     switch (std.meta.stringToEnum(BuiltinType, argv[0]) orelse return false) {
         .cd => try builtinCd(ally, argv),
-        .@"export" => try builtinExport(ally, argv),
+        .@"export" => try builtinExport(argv),
         .exit => try builtinExit(argv),
         .type => try builtinType(ally, argv),
     }
