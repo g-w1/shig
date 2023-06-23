@@ -6,10 +6,10 @@ const builtins = @import("builtins.zig");
 
 const Argv = std.ArrayList([]const u8);
 
-pub var env_map: std.BufMap = undefined;
+pub var env_map: std.process.EnvMap = undefined;
 pub var lastexitcode: u32 = 0;
 
-pub fn init(ally: *std.mem.Allocator) !void {
+pub fn init(ally: std.mem.Allocator) !void {
     env_map = try std.process.getEnvMap(ally);
 }
 pub fn deinit() void {
@@ -18,8 +18,7 @@ pub fn deinit() void {
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const ally = &gpa.allocator;
-    defer _ = gpa.deinit();
+    var ally = gpa.allocator();
 
     try init(ally);
     defer deinit();
@@ -46,11 +45,11 @@ pub fn main() anyerror!void {
     }
 }
 
-pub fn executeLine(ally: *std.mem.Allocator, line: []const u8) !void {
+pub fn executeLine(ally: std.mem.Allocator, line: []const u8) !void {
     // tokenization of line
     var argv = try Argv.initCapacity(ally, 1);
     defer argv.deinit();
-    var tokenized = std.mem.tokenize(line, " ");
+    var tokenized = std.mem.tokenizeAny(u8, line, " ");
     while (tokenized.next()) |arg| {
         try argv.append(arg);
     }
@@ -83,7 +82,7 @@ pub fn executeLine(ally: *std.mem.Allocator, line: []const u8) !void {
     }
 }
 
-fn printPrompt(ally: *std.mem.Allocator) !void {
+fn printPrompt(ally: std.mem.Allocator) !void {
     const stdout = std.io.getStdOut();
     const cwd = try std.process.getCwdAlloc(ally);
     defer ally.free(cwd);
@@ -116,14 +115,14 @@ test "exec" {
 }
 
 /// returns an owned slice
-pub fn getProgFromPath(allocator: *std.mem.Allocator, prog: []const u8) !?[:0]const u8 {
+pub fn getProgFromPath(allocator: std.mem.Allocator, prog: []const u8) !?[:0]const u8 {
     if (std.mem.indexOfScalar(u8, prog, '/') != null) {
         std.os.access(prog, std.os.system.X_OK) catch return null;
         return @as(?[:0]const u8, try allocator.dupeZ(u8, prog));
     }
 
     const PATH = std.os.getenvZ("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
-    var it = std.mem.tokenize(PATH, ":");
+    var it = std.mem.tokenizeAny(u8, PATH, ":");
     while (it.next()) |directory| {
         const path = try std.fs.path.joinZ(allocator, &.{ directory, prog });
         std.os.access(path, std.os.system.X_OK) catch {

@@ -11,7 +11,7 @@ const BuiltinType = enum {
     type,
 };
 
-fn builtinCd(ally: *std.mem.Allocator, argv: [][]const u8) !void {
+fn builtinCd(ally: std.mem.Allocator, argv: [][]const u8) !void {
     const stdout = std.io.getStdOut().writer();
     std.debug.assert(std.mem.eql(u8, "cd", argv[0])); // cd was called wrong
     var operand: []const u8 = undefined;
@@ -21,7 +21,7 @@ fn builtinCd(ally: *std.mem.Allocator, argv: [][]const u8) !void {
         } else if (std.mem.eql(u8, a, "-")) { // singular dash means go back to previous directory
             const newdir = main.env_map.get("OLDPWD");
             if (newdir) |nd| {
-                const d = try std.mem.dupe(ally, u8, nd);
+                const d = try ally.dupe(u8, nd);
                 defer ally.free(d);
 
                 try stdout.print("{s}\n", .{d});
@@ -56,7 +56,7 @@ fn builtinCd(ally: *std.mem.Allocator, argv: [][]const u8) !void {
         try cd(ally, operand);
     }
 }
-fn cd(ally: *std.mem.Allocator, p: []const u8) !void {
+fn cd(ally: std.mem.Allocator, p: []const u8) !void {
     const cwd = try std.process.getCwdAlloc(ally);
     defer ally.free(cwd);
     try main.env_map.put("OLDPWD", cwd);
@@ -109,7 +109,7 @@ fn builtinExport(argv: [][]const u8) !void {
         }
     }
 }
-fn builtinType(ally: *std.mem.Allocator, argv: [][]const u8) !void {
+fn builtinType(ally: std.mem.Allocator, argv: [][]const u8) !void {
     std.debug.assert(std.mem.eql(u8, "type", argv[0])); // type was called wrong
     const stdout = std.io.getStdOut().writer();
     if (argv.len == 1) {
@@ -132,7 +132,7 @@ fn builtinType(ally: *std.mem.Allocator, argv: [][]const u8) !void {
 }
 
 /// true if it used a builtin, false if not
-pub fn handleBuiltin(argv: [][]const u8, ally: *std.mem.Allocator) !bool {
+pub fn handleBuiltin(argv: [][]const u8, ally: std.mem.Allocator) !bool {
     std.debug.assert(argv.len > 0);
     switch (std.meta.stringToEnum(BuiltinType, argv[0]) orelse return false) {
         .cd => try builtinCd(ally, argv),
